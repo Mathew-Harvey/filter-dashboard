@@ -7,6 +7,8 @@
   "scripts": {
     "start": "node index.js",
     "scan": "node scan.js",
+    "probe": "node probe.js",
+    "discover": "node discover.js",
     "mock": "node mock-slave.js"
   },
   "dependencies": {

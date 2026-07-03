@@ -29,8 +29,8 @@ module.exports = {
     retentionDays: 365, // readings older than this are pruned daily
   },
 
-  pollIntervalMs: 5000, // how often to poll every tag
-  modbusTimeoutMs: 2000, // per-read timeout before a tag is marked stale
+  pollIntervalMs: 1000, // how often to poll every tag
+  modbusTimeoutMs: 1500, // per-read timeout before a tag is marked stale
 
   gateways: [
     {
@@ -42,42 +42,47 @@ module.exports = {
         {
           key: 'FLM-W',
           name: 'Water flow rate',
-          unit: 'm³/h',
+          unit: 'L/min',
           type: 'analog',
-          register: 0, // <-- SET ON SITE
+          register: 0,
           dataType: 'FLOAT32',
           wordOrder: 'ABCD',
-          // rescale: { inMin: 4, inMax: 20, outMin: 0, outMax: 180 },
-          alarm: { warnHigh: 170, high: 180, warnLow: null, low: null },
+          factor: 1000 / 60, // gateway serves m³/h → convert to L/min
+          abs: true, // show magnitude only (zero-flow magmeter offset)
+          decimals: 3,
+          alarm: { warnHigh: 2833, high: 3000, warnLow: null, low: null }, // 170/180 m³/h
         },
         {
           key: 'TUR',
           name: 'Turbidity',
           unit: 'NTU',
           type: 'analog',
-          register: 2, // <-- SET ON SITE
+          register: 2,
           dataType: 'FLOAT32',
           wordOrder: 'ABCD',
-          alarm: { warnHigh: null, high: null, warnLow: null, low: null }, // set after CM442R range read
+          decimals: 3,
+          alarm: { warnHigh: null, high: null, warnLow: null, low: null },
         },
         {
           key: 'BFP',
           name: 'Bag filter pressure',
           unit: 'bar',
           type: 'analog',
-          register: 4, // <-- SET ON SITE
+          register: 4,
           dataType: 'FLOAT32',
           wordOrder: 'ABCD',
-          alarm: { warnHigh: null, high: null, warnLow: null, low: null }, // set after PMP23 range read
+          decimals: 3,
+          alarm: { warnHigh: null, high: null, warnLow: null, low: null },
         },
         {
           key: 'ORP',
           name: 'Redox potential',
           unit: 'mV',
           type: 'analog',
-          register: 6, // <-- SET ON SITE
+          register: 6,
           dataType: 'FLOAT32',
           wordOrder: 'ABCD',
+          decimals: 3,
           alarm: { warnHigh: null, high: null, warnLow: null, low: null },
           // NOTE: known loop fault (22.47 mA out of range) as of 16 May 2026 -
           // expect this to read faulty until the electrician clears it.
@@ -96,10 +101,10 @@ module.exports = {
         // inducing a known fault - flip `invert` once confirmed.
         // If the FXA42 maps these as COILS rather than holding registers,
         // set `fn: 'coil'` on the tag.
-        { key: 'COM-F', name: 'Compressor fault', type: 'digital', register: 0, invert: false },
-        { key: 'BAL-F', name: 'Baleen filter fault', type: 'digital', register: 1, invert: false },
-        { key: 'UVM-F', name: 'UV module fault', type: 'digital', register: 2, invert: false },
-        { key: 'PLN-F', name: 'General plant fault', type: 'digital', register: 3, invert: false },
+        { key: 'COM-F', name: 'Compressor fault', type: 'digital', register: 0, fn: 'coil', invert: false },
+        { key: 'BAL-F', name: 'Baleen filter fault', type: 'digital', register: 1, fn: 'coil', invert: false },
+        { key: 'UVM-F', name: 'UV module fault', type: 'digital', register: 2, fn: 'coil', invert: false },
+        { key: 'PLN-F', name: 'General plant fault', type: 'digital', register: 3, fn: 'coil', invert: false },
       ],
     },
 

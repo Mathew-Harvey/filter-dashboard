@@ -49,6 +49,20 @@ value to a register. Then confirm the addresses and word order with the scan too
 node scan.js 192.168.1.2 0 20      # host, start register, count
 ```
 
+**Auto-discovery (brute-force):** if you don't know the register map yet, run:
+
+```bash
+node discover.js                     # scan all three gateways from config.js
+node discover.js 192.168.1.2         # one gateway
+node discover.js 192.168.1.3 --digital
+node discover.js --max-reg 300 --units 1-10   # wider search
+node discover.js --watch 15          # re-scan every 15s until mappings appear
+```
+
+This loops through unit IDs, holding/input registers, coils, addresses, and word
+orders; scores values against expected tag ranges; prints ranked candidates and a
+suggested `config.js` snippet. Compare output to the FXA42 Grid View before saving.
+
 It prints each register's raw value plus the FLOAT32 interpretation in all four word
 orders (ABCD / DCBA / CDAB / BADC). Compare against the live values on the gateway's
 **Grid View** — the column that shows a plausible engineering number tells you both the
@@ -120,6 +134,7 @@ data light.
 |------|---------|
 | `config.js` | The only file you edit for the site: gateways, tags, registers, scaling, alarms |
 | `scan.js` | On-site register discovery tool |
+| `discover.js` | Brute-force mapping discovery (unit ID, register type, address, word order) |
 | `modbus.js` | Per-gateway Modbus client, reconnect, register decoding |
 | `db.js` | SQLite storage (readings + alarm events) |
 | `alarms.js` | Reading → status (ok / warn / alarm / stale) |

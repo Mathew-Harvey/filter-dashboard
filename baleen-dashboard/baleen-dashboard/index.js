@@ -20,6 +20,7 @@ for (const gw of config.gateways) {
 const tagByKey = Object.fromEntries(tagList.map((t) => [t.key, t]));
 
 const gateways = config.gateways.map((gw) => new Gateway(gw, config.modbusTimeoutMs));
+const pollErrors = {};
 
 // In-memory latest snapshot + last known status (for alarm-transition logging).
 const snapshot = {}; // key -> { value, unit, status, ts, quality }
@@ -35,6 +36,23 @@ async function pollOnce() {
   for (let i = 0; i < config.gateways.length; i++) {
     const gwCfg = config.gateways[i];
     const readings = results[i];
+
+    const bad = Object.entries(readings).filter(([, r]) => r.quality !== 'good');
+    if (bad.length && bad.length === Object.keys(readings).length) {
+      const summary = bad.map(([k, r]) => `${k}: ${r.error || 'bad'}`).join('; ');
+      if (pollErrors[gwCfg.id] !== summary) {
+        pollErrors[gwCfg.id] = summary;
+        console.warn(`[poll] ${gwCfg.id} (${gwCfg.host}) — ${summary}`);
+        if ((summary.includes('Illegal data address') || summary.includes('exception 2')) && !pollErrors[`${gwCfg.id}_hint`]) {
+          pollErrors[`${gwCfg.id}_hint`] = true;
+          console.warn(`[poll] ${gwCfg.id}: no Modbus registers published — run: node probe.js ${gwCfg.host}`);
+        }
+      }
+    } else if (pollErrors[gwCfg.id]) {
+      delete pollErrors[gwCfg.id];
+      console.log(`[poll] ${gwCfg.id} (${gwCfg.host}) — all tags good`);
+    }
+
     for (const tag of gwCfg.tags) {
       const reading = readings[tag.key] || { value: null, quality: 'bad' };
       const status = alarms.evaluate(tag, reading);
@@ -63,14 +81,14 @@ async function pollOnce() {
   broadcast({ type: 'snapshot', ts, data: snapshot });
 }
 
-async function loop() {
-  try {
-    await pollOnce();
-  } catch (err) {
-    console.error('[poll] cycle error:', err.message);
-  } finally {
-    setTimeout(loop, config.pollIntervalMs);
-  }
+function scheduleLoop() {
+  const t0 = Date.now();
+  pollOnce()
+    .catch((err) => console.error('[poll] cycle error:', err.message))
+    .finally(() => {
+      const wait = Math.max(0, config.pollIntervalMs - (Date.now() - t0));
+      setTimeout(scheduleLoop, wait);
+    });
 }
 
 // Prune old readings once a day.
@@ -90,6 +108,7 @@ app.get('/api/config', (_req, res) => {
     tags: tagList.map((t) => ({
       key: t.key, name: t.name, unit: t.unit || '', type: t.type,
       gateway: t.gateway, alarm: t.alarm || null,
+      decimals: t.decimals ?? (t.type === 'analog' ? 2 : 0),
     })),
   });
 });
@@ -123,7 +142,7 @@ function broadcast(msg) {
 server.listen(config.server.port, () => {
   console.log(`[baleen] dashboard on http://0.0.0.0:${config.server.port}`);
   console.log(`[baleen] polling ${config.gateways.length} gateways every ${config.pollIntervalMs} ms`);
-  loop();
+  scheduleLoop();
 });
 
 function shutdown() {

@@ -57,19 +57,25 @@ class Gateway {
         return tag.invert ? 1 - v : v;
       }
       // default: digital state held in a holding register as 0/1
-      const r = await this.client.readHoldingRegisters(tag.register, 1);
+      const readFn = tag.fn === 'input' ? 'readInputRegisters' : 'readHoldingRegisters';
+      const r = await this.client[readFn](tag.register, 1);
       let v = r.data[0] ? 1 : 0;
       return tag.invert ? 1 - v : v;
     }
 
     // analog
     const len = tag.dataType === 'INT16' || tag.dataType === 'UINT16' ? 1 : 2;
-    const r = await this.client.readHoldingRegisters(tag.register, len);
+    const readFn = tag.fn === 'input' ? 'readInputRegisters' : 'readHoldingRegisters';
+    const r = await this.client[readFn](tag.register, len);
     let value = decode(r.buffer, tag.dataType, tag.wordOrder);
     if (tag.rescale) {
       const s = tag.rescale;
       value = s.outMin + ((value - s.inMin) * (s.outMax - s.outMin)) / (s.inMax - s.inMin);
     }
+    if (tag.factor != null) value *= tag.factor;
+    if (tag.abs && Number.isFinite(value)) value = Math.abs(value);
+    if (tag.clampMin != null && Number.isFinite(value)) value = Math.max(tag.clampMin, value);
+    if (tag.clampMax != null && Number.isFinite(value)) value = Math.min(tag.clampMax, value);
     return value;
   }
 
