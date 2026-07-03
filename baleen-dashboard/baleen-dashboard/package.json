@@ -1,0 +1,17 @@
+{
+  "name": "baleen-dashboard",
+  "version": "0.1.0",
+  "description": "Supervisor monitoring dashboard for the Baleen filter skid (F12159). Polls the three FXA42 gateways over Modbus TCP, stores to SQLite (node:sqlite), serves a live web dashboard.",
+  "main": "index.js",
+  "engines": { "node": ">=22.6" },
+  "scripts": {
+    "start": "node index.js",
+    "scan": "node scan.js",
+    "mock": "node mock-slave.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "modbus-serial": "^8.0.21",
+    "ws": "^8.18.0"
+  }
+}

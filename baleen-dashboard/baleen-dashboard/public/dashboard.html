@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Baleen Filter Skid — Supervisor Monitor</title>
+<style>
+  :root {
+    --bg: #0f1720; --panel: #16212e; --panel2: #1b2836; --line: #26333f;
+    --text: #e6edf3; --muted: #8595a8; --accent: #2E86AB;
+    --ok: #34d399; --warn: #fbbf24; --alarm: #f87171; --stale: #55647a;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text);
+    font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+  .value, .age, th, td { font-variant-numeric: tabular-nums; }
+  header { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap;
+    padding: 18px 22px; border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 17px; font-weight: 650; margin: 0; letter-spacing: .2px; }
+  header .sub { color: var(--muted); font-size: 13px; }
+  header .conn { margin-left: auto; font-size: 12.5px; color: var(--muted);
+    display: flex; align-items: center; gap: 7px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--stale); }
+  .dot.live { background: var(--ok); box-shadow: 0 0 0 3px rgba(52,211,153,.15); }
+
+  #alarmbar { padding: 0 22px; }
+  #alarmbar .strip { display: none; margin: 14px 0 0; padding: 10px 14px;
+    border-radius: 8px; background: rgba(248,113,113,.12);
+    border: 1px solid rgba(248,113,113,.4); color: #fecaca; font-size: 13.5px; }
+  #alarmbar .strip.show { display: block; }
+  #alarmbar .strip b { color: #fff; }
+
+  main { padding: 8px 22px 40px; }
+  .group { margin-top: 26px; }
+  .group h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 1.4px;
+    color: var(--muted); font-weight: 600; margin: 0 0 12px;
+    display: flex; align-items: center; gap: 10px; }
+  .group h2::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+
+  .grid { display: grid; gap: 12px;
+    grid-template-columns: repeat(auto-fill, minmax(215px, 1fr)); }
+  .card { background: var(--panel); border: 1px solid var(--line);
+    border-left: 3px solid var(--stale); border-radius: 10px; padding: 14px 15px;
+    transition: border-color .2s, background .2s; }
+  .card.analog { cursor: pointer; }
+  .card.analog:hover { background: var(--panel2); }
+  .card.ok    { border-left-color: var(--ok); }
+  .card.warn  { border-left-color: var(--warn); }
+  .card.alarm { border-left-color: var(--alarm); background: rgba(248,113,113,.07); }
+  .card.stale { border-left-color: var(--stale); opacity: .62; }
+
+  .card .name { font-size: 13px; color: var(--muted); margin-bottom: 8px;
+    display: flex; justify-content: space-between; gap: 8px; }
+  .card .name .k { color: var(--accent); font-weight: 600; font-size: 11.5px;
+    letter-spacing: .5px; }
+  .value { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 30px; font-weight: 600; line-height: 1.05; }
+  .value .u { font-size: 14px; color: var(--muted); margin-left: 5px; font-weight: 500; }
+  .age { font-size: 11px; color: var(--muted); margin-top: 7px; }
+
+  .badge { display: inline-block; font-size: 15px; font-weight: 650;
+    padding: 6px 12px; border-radius: 7px; letter-spacing: .3px; }
+  .badge.ok    { background: rgba(52,211,153,.14);  color: var(--ok); }
+  .badge.alarm { background: rgba(248,113,113,.16); color: var(--alarm); }
+  .badge.stale { background: rgba(85,100,122,.18);  color: var(--stale); }
+
+  .trend { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 10px; }
+  .trend canvas { width: 100%; height: 90px; display: block; }
+  .trend .lbl { font-size: 11px; color: var(--muted); display: flex;
+    justify-content: space-between; margin-bottom: 6px; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Baleen Filter Skid</h1>
+  <span class="sub">F12159 · supervisor monitor</span>
+  <span class="conn"><span class="dot" id="dot"></span><span id="connText">connecting…</span></span>
+</header>
+<div id="alarmbar"><div class="strip" id="strip"></div></div>
+<main id="main"></main>
+
+<script>
+const state = { tags: {}, cards: {}, open: null, lastMsgTs: 0 };
+
+function ageText(ts) {
+  const s = Math.round((Date.now() - ts) / 1000);
+  if (s < 60) return s + "s ago";
+  if (s < 3600) return Math.round(s / 60) + "m ago";
+  return Math.round(s / 3600) + "h ago";
+}
+
+async function build() {
+  const cfg = await (await fetch("/api/config")).json();
+  const main = document.getElementById("main");
+  const groups = {};
+  for (const t of cfg.tags) {
+    state.tags[t.key] = t;
+    (groups[t.gateway] ||= []).push(t);
+  }
+  for (const [gw, tags] of Object.entries(groups)) {
+    const sec = document.createElement("section");
+    sec.className = "group";
+    sec.innerHTML = `<h2>${gw}</h2>`;
+    const grid = document.createElement("div");
+    grid.className = "grid";
+    for (const t of tags) {
+      const card = document.createElement("div");
+      card.className = "card " + (t.type === "analog" ? "analog stale" : "stale");
+      card.innerHTML = `
+        <div class="name"><span>${t.name}</span><span class="k">${t.key}</span></div>
+        <div class="body"></div>
+        <div class="age"></div>
+        <div class="trend hidden"><div class="lbl"></div><canvas></canvas></div>`;
+      if (t.type === "analog") card.onclick = () => toggleTrend(t.key);
+      grid.appendChild(card);
+      state.cards[t.key] = card;
+    }
+    sec.appendChild(grid);
+    main.appendChild(sec);
+  }
+}
+
+function render(data) {
+  const activeAlarms = [];
+  for (const [key, r] of Object.entries(data)) {
+    const t = state.tags[key], card = state.cards[key];
+    if (!t || !card) continue;
+    card.className = "card " + (t.type === "analog" ? "analog " : "") + r.status;
+    const body = card.querySelector(".body");
+    if (t.type === "digital") {
+      const label = r.status === "alarm" ? "FAULT" : r.status === "stale" ? "NO DATA" : "OK";
+      body.innerHTML = `<span class="badge ${r.status}">${label}</span>`;
+    } else {
+      const v = (r.value == null) ? "—" : Number(r.value).toFixed(2);
+      body.innerHTML = `<div class="value">${v}<span class="u">${r.unit || ""}</span></div>`;
+    }
+    card.querySelector(".age").textContent = r.value == null ? "no data" : ageText(r.ts);
+    if (r.status === "alarm") activeAlarms.push(t.name);
+    else if (r.status === "warn") activeAlarms.push(t.name + " (warn)");
+  }
+  const strip = document.getElementById("strip");
+  if (activeAlarms.length) {
+    strip.innerHTML = `<b>${activeAlarms.length} active:</b> ${activeAlarms.join(" · ")}`;
+    strip.classList.add("show");
+  } else {
+    strip.classList.remove("show");
+  }
+  if (state.open) drawTrend(state.open);
+}
+
+function toggleTrend(key) {
+  const card = state.cards[key];
+  const box = card.querySelector(".trend");
+  if (state.open === key) { box.classList.add("hidden"); state.open = null; return; }
+  if (state.open) state.cards[state.open].querySelector(".trend").classList.add("hidden");
+  state.open = key;
+  box.classList.remove("hidden");
+  drawTrend(key);
+}
+
+async function drawTrend(key) {
+  const card = state.cards[key];
+  const rows = await (await fetch(`/api/history?key=${encodeURIComponent(key)}&hours=6`)).json();
+  const canvas = card.querySelector("canvas");
+  const lbl = card.querySelector(".trend .lbl");
+  const ctx = canvas.getContext("2d");
+  const w = canvas.width = canvas.clientWidth * devicePixelRatio;
+  const h = canvas.height = 90 * devicePixelRatio;
+  ctx.clearRect(0, 0, w, h);
+  if (rows.length < 2) { lbl.textContent = "last 6 h · collecting…"; return; }
+  const vals = rows.map(r => r.value);
+  const min = Math.min(...vals), max = Math.max(...vals), span = (max - min) || 1;
+  const x = i => (i / (rows.length - 1)) * w;
+  const y = v => h - ((v - min) / span) * (h - 10) - 5;
+  ctx.strokeStyle = "#2E86AB"; ctx.lineWidth = 2 * devicePixelRatio;
+  ctx.beginPath();
+  rows.forEach((r, i) => i ? ctx.lineTo(x(i), y(r.value)) : ctx.moveTo(x(i), y(r.value)));
+  ctx.stroke();
+  lbl.innerHTML = `<span>last 6 h</span><span>min ${min.toFixed(1)} · max ${max.toFixed(1)}</span>`;
+}
+
+function connect() {
+  const ws = new WebSocket(`ws://${location.host}/ws`);
+  const dot = document.getElementById("dot"), txt = document.getElementById("connText");
+  ws.onopen = () => { dot.classList.add("live"); txt.textContent = "live"; };
+  ws.onclose = () => { dot.classList.remove("live"); txt.textContent = "reconnecting…"; setTimeout(connect, 2000); };
+  ws.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+    if (msg.type === "snapshot") { state.lastMsgTs = Date.now(); render(msg.data); }
+  };
+}
+
+// Flag a stalled feed even if the socket stays open.
+setInterval(() => {
+  const txt = document.getElementById("connText");
+  if (state.lastMsgTs && Date.now() - state.lastMsgTs > 15000) txt.textContent = "stalled";
+}, 5000);
+
+build().then(connect);
+</script>
+</body>
+</html>

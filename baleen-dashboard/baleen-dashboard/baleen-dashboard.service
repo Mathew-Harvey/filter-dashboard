@@ -1,0 +1,20 @@
+# Install on the NUC (or ThinkPad) for auto-start + restart-on-crash / power loss:
+#   sudo cp baleen-dashboard.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now baleen-dashboard
+# Edit User= and WorkingDirectory= to match where you cloned the project.
+[Unit]
+Description=Baleen Filter Skid supervisor dashboard
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=franmarine
+WorkingDirectory=/home/franmarine/baleen-dashboard
+ExecStart=/usr/bin/node index.js
+Restart=always
+RestartSec=5
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=multi-user.target
